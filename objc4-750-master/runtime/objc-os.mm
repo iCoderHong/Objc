@@ -574,6 +574,7 @@ map_images_nolock(unsigned mhCount, const char * const mhPaths[],
     }
 
     if (hCount > 0) {
+        // 读取模块 totalClasses所有的类
         _read_images(hList, hCount, totalClasses, unoptimizedTotalClasses);
     }
 
@@ -872,6 +873,7 @@ void _objc_atfork_child()
 * Called by libSystem BEFORE library initialization time
 **********************************************************************/
 
+// 运行时初始化
 void _objc_init(void)
 {
     static bool initialized = false;
@@ -884,7 +886,10 @@ void _objc_init(void)
     static_init();
     lock_init();
     exception_init();
-
+    
+    /**
+     map_images 函数地址 内部会动态分类中的属性、方法、协议组合到类对象中
+     */
     _dyld_objc_notify_register(&map_images, load_images, unmap_image);
 }
 

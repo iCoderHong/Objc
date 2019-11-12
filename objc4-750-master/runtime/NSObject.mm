@@ -91,8 +91,8 @@ enum HaveNew { DontHaveNew = false, DoHaveNew = true };
 
 struct SideTable {
     spinlock_t slock;
-    RefcountMap refcnts;
-    weak_table_t weak_table;
+    RefcountMap refcnts; // 存储对象的引用计数散列表 
+    weak_table_t weak_table; // 存储着弱引用散列表
 
     SideTable() {
         memset(&weak_table, 0, sizeof(weak_table));
@@ -653,7 +653,7 @@ class AutoreleasePoolPage
     static size_t const COUNT = SIZE / sizeof(id);
 
     magic_t const magic;
-    id *next;
+    id *next; // 指向了下一个能存放autorelease对象地址的区域
     pthread_t const thread;
     AutoreleasePoolPage * const parent;
     AutoreleasePoolPage *child;
@@ -1017,6 +1017,7 @@ public:
     }
 
 
+    // 调用push方法会将一个POOL_BOUNDARY入栈，并且返回其存放的内存地址
     static inline void *push() 
     {
         id *dest;
@@ -1055,6 +1056,7 @@ public:
         objc_autoreleasePoolInvalid(token);
     }
     
+    // 调用pop方法时传入一个POOL_BOUNDARY的内存地址，会从最后一个入栈的对象开始发送release消息，直到遇到这个POOL_BOUNDARY
     static inline void pop(void *token) 
     {
         AutoreleasePoolPage *page;
@@ -1231,6 +1233,7 @@ objc_object::clearDeallocating_slow()
     SideTable& table = SideTables()[this];
     table.lock();
     if (isa.weakly_referenced) {
+        // 清除弱引用表
         weak_clear_no_lock(&table.weak_table, (id)this);
     }
     if (isa.has_sidetable_rc) {
@@ -1395,6 +1398,7 @@ size_t
 objc_object::sidetable_getExtraRC_nolock()
 {
     assert(isa.nonpointer);
+    // 更具对象作为key取出SideTable
     SideTable& table = SideTables()[this];
     RefcountMap::iterator it = table.refcnts.find(this);
     if (it == table.refcnts.end()) return 0;

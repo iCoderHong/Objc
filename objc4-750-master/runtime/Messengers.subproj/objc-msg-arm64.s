@@ -230,6 +230,7 @@ LExit$0:
 .endif
 .endmacro
 
+// CacheLookup实现
 .macro CacheLookup
 	// p1 = SEL, p16 = isa
 	ldp	p10, p11, [x16, #CACHE]	// p10 = buckets, p11 = occupied|mask
@@ -264,7 +265,7 @@ LExit$0:
 	b.ne	2f			//     scan more
 	CacheHit $0			// call or return imp
 	
-2:	// not hit: p12 = not-hit bucket
+2:	// not hit: p12 = not-hit bucket 如果缓存没有找到
 	CheckMiss $0			// miss if bucket->sel == 0
 	cmp	p12, p10		// wrap if bucket == buckets
 	b.eq	3f
@@ -299,18 +300,20 @@ _objc_debug_taggedpointer_ext_classes:
 	.fill 256, 8, 0
 #endif
 
-	ENTRY _objc_msgSend
+	ENTRY _objc_msgSend // objc_msgSend实现开始
 	UNWIND _objc_msgSend, NoFrame
-
-	cmp	p0, #0			// nil check and tagged pointer check
+    
+    // 判断下次接受者是否为nil
+	cmp	p0, #0			// nil check and tagged pointer check 判断消息接受者是否==0, p0 objc_msgSend是第一个参数 消息接受者
 #if SUPPORT_TAGGED_POINTERS
-	b.le	LNilOrTagged		//  (MSB tagged pointer looks negative)
+	b.le	LNilOrTagged		//  (MSB tagged pointer looks negative) // b.le 条件成立 跳转到LNilOrTagged
 #else
 	b.eq	LReturnZero
 #endif
 	ldr	p13, [x0]		// p13 = isa
 	GetClassFromIsa_p16 p13		// p16 = class
 LGetIsaDone:
+    // 缓存查找
 	CacheLookup NORMAL		// calls imp or objc_msgSend_uncached
 
 #if SUPPORT_TAGGED_POINTERS
@@ -345,7 +348,7 @@ LReturnZero:
 	movi	d3, #0
 	ret
 
-	END_ENTRY _objc_msgSend
+	END_ENTRY _objc_msgSend // objc_msgSend实现结束
 
 
 	ENTRY _objc_msgLookup
@@ -456,7 +459,7 @@ LLookup_Nil:
 
 	// receiver and selector already in x0 and x1
 	mov	x2, x16
-	bl	__class_lookupMethodAndLoadCache3
+	bl	__class_lookupMethodAndLoadCache3 // 汇编语言方法名__class_lookupMethodAndLoadCache3 对应C语言方法名去掉前面一个_
 
 	// IMP in x0
 	mov	x17, x0

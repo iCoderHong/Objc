@@ -759,6 +759,8 @@ prepareMethodLists(Class cls, method_list_t **addedLists, int addedCount,
 // Attach method lists and properties and protocols from categories to a class.
 // Assumes the categories in cats are all loaded and sorted by load order, 
 // oldest categories first.
+// cls  类对象
+// cats 分类列表[category_t test, ...]
 static void 
 attachCategories(Class cls, category_list *cats, bool flush_caches)
 {
@@ -768,12 +770,10 @@ attachCategories(Class cls, category_list *cats, bool flush_caches)
     bool isMeta = cls->isMetaClass();
 
     // fixme rearrange to remove these intermediate allocations
-    method_list_t **mlists = (method_list_t **)
-        malloc(cats->count * sizeof(*mlists));
-    property_list_t **proplists = (property_list_t **)
-        malloc(cats->count * sizeof(*proplists));
-    protocol_list_t **protolists = (protocol_list_t **)
-        malloc(cats->count * sizeof(*protolists));
+    // mlists二维数组 [method_list_t *, method_list_t *, method_list_t]
+    method_list_t **mlists = (method_list_t **) malloc(cats->count * sizeof(*mlists));
+    property_list_t **proplists = (property_list_t **) malloc(cats->count * sizeof(*proplists));
+    protocol_list_t **protolists = (protocol_list_t **) malloc(cats->count * sizeof(*protolists));
 
     // Count backwards through cats to get newest categories first
     int mcount = 0;
@@ -782,8 +782,10 @@ attachCategories(Class cls, category_list *cats, bool flush_caches)
     int i = cats->count;
     bool fromBundle = NO;
     while (i--) {
+        //
         auto& entry = cats->list[i];
-
+        
+        // mlist以为数组 [method_t, method_t, method_t]
         method_list_t *mlist = entry.cat->methodsForMeta(isMeta);
         if (mlist) {
             mlists[mcount++] = mlist;
@@ -801,10 +803,12 @@ attachCategories(Class cls, category_list *cats, bool flush_caches)
             protolists[protocount++] = protolist;
         }
     }
-
+    
+    // 取出类对象中的rw
     auto rw = cls->data();
 
     prepareMethodLists(cls, mlists, mcount, NO, fromBundle);
+    // 将所有分类中的方法 附加到类对象方法列表中
     rw->methods.attachLists(mlists, mcount);
     free(mlists);
     if (flush_caches  &&  mcount > 0) flushCaches(cls);
@@ -2732,6 +2736,7 @@ void _read_images(header_info **hList, uint32_t hCount, int totalClasses, int un
             {
                 addUnattachedCategoryForClass(cat, cls, hi);
                 if (cls->isRealized()) {
+                    // 重新组织l类对象中的方法
                     remethodizeClass(cls);
                     classExists = YES;
                 }
@@ -2747,6 +2752,7 @@ void _read_images(header_info **hList, uint32_t hCount, int totalClasses, int un
             {
                 addUnattachedCategoryForClass(cat, cls->ISA(), hi);
                 if (cls->ISA()->isRealized()) {
+                    // 重新组织类对象中的方法
                     remethodizeClass(cls->ISA());
                 }
                 if (PrintConnecting) {
@@ -4669,6 +4675,7 @@ static method_t *findMethodInSortedMethodList(SEL key, const method_list_t *list
     uintptr_t keyValue = (uintptr_t)key;
     uint32_t count;
     
+    // 二分查找
     for (count = list->count; count != 0; count >>= 1) {
         probe = base + (count >> 1);
         
@@ -4704,9 +4711,10 @@ static method_t *search_method_list(const method_list_t *mlist, SEL sel)
     int methodListHasExpectedSize = mlist->entsize() == sizeof(method_t);
     
     if (__builtin_expect(methodListIsFixedUp && methodListHasExpectedSize, 1)) {
+        // 如果排好序的 二分查找/折半查找
         return findMethodInSortedMethodList(sel, mlist);
     } else {
-        // Linear search of unsorted method list
+        // Linear search of unsorted method list 如果没有排好序 线性查找
         for (auto& meth : *mlist) {
             if (meth.name == sel) return &meth;
         }
@@ -4734,12 +4742,14 @@ getMethodNoSuper_nolock(Class cls, SEL sel)
     assert(cls->isRealized());
     // fixme nil cls? 
     // fixme nil sel?
-
+    
+    //
     for (auto mlists = cls->data()->methods.beginLists(), 
               end = cls->data()->methods.endLists(); 
          mlists != end;
          ++mlists)
     {
+        // 从方法列表中查找方法
         method_t *m = search_method_list(*mlists, sel);
         if (m) return m;
     }
@@ -4838,6 +4848,12 @@ log_and_fill_cache(Class cls, IMP imp, SEL sel, id receiver, Class implementer)
 * This lookup avoids optimistic cache scan because the dispatcher 
 * already tried that.
 **********************************************************************/
+/*
+ objc_msgSend 首先查找方法缓存(汇编实现) 如果没有找到汇编调用_class_lookupMethodAndLoadCache3方法
+ obj消息接受者
+ sel方法名
+ cls类对象
+ */
 IMP _class_lookupMethodAndLoadCache3(id obj, SEL sel, Class cls)
 {
     return lookUpImpOrForward(cls, sel, obj, 
@@ -4861,7 +4877,7 @@ IMP lookUpImpOrForward(Class cls, SEL sel, id inst,
                        bool initialize, bool cache, bool resolver)
 {
     IMP imp = nil;
-    bool triedResolver = NO;
+    bool triedResolver = NO; // 是否尝试过动态解析
 
     runtimeLock.assertUnlocked();
 
@@ -4901,38 +4917,40 @@ IMP lookUpImpOrForward(Class cls, SEL sel, id inst,
  retry:    
     runtimeLock.assertLocked();
 
-    // Try this class's cache.
-
+    // Try this class's cache. 尝试在自己的类对象中没有查找到方法
+    // 尝试从缓存查找
     imp = cache_getImp(cls, sel);
     if (imp) goto done;
 
     // Try this class's method lists.
     {
+        // cls是类对象或者元类对象查找方法
         Method meth = getMethodNoSuper_nolock(cls, sel);
         if (meth) {
+            // 如果方法存在 将找到的方法添加到方法缓存
             log_and_fill_cache(cls, meth->imp, sel, inst, cls);
             imp = meth->imp;
             goto done;
         }
     }
 
+    //  尝试父类的类对象中没有查找到方法
     // Try superclass caches and method lists.
     {
         unsigned attempts = unreasonableClassCount();
-        for (Class curClass = cls->superclass;
-             curClass != nil;
-             curClass = curClass->superclass)
-        {
+        for (Class curClass = cls->superclass; curClass != nil; curClass = curClass->superclass) {
             // Halt if there is a cycle in the superclass chain.
             if (--attempts == 0) {
                 _objc_fatal("Memory corruption in class list.");
             }
             
             // Superclass cache.
+            // 1.从父类缓存中查找
             imp = cache_getImp(curClass, sel);
             if (imp) {
                 if (imp != (IMP)_objc_msgForward_impcache) {
                     // Found the method in a superclass. Cache it in this class.
+                    // 将父类的方法缓存到消息接受者的方法缓存中
                     log_and_fill_cache(cls, imp, sel, inst, curClass);
                     goto done;
                 }
@@ -4945,8 +4963,10 @@ IMP lookUpImpOrForward(Class cls, SEL sel, id inst,
             }
             
             // Superclass method list.
+            // 如果父类缓存没有 从父类方法列表中查找
             Method meth = getMethodNoSuper_nolock(curClass, sel);
             if (meth) {
+                // 填充方法到消息接受者中
                 log_and_fill_cache(cls, meth->imp, sel, inst, curClass);
                 imp = meth->imp;
                 goto done;
@@ -4955,9 +4975,10 @@ IMP lookUpImpOrForward(Class cls, SEL sel, id inst,
     }
 
     // No implementation found. Try method resolver once.
-
+    // 如果都没有查找到方法 进入尝试【动态方法解析】阶段
     if (resolver  &&  !triedResolver) {
         runtimeLock.unlock();
+        // 动态方法解析】
         _class_resolveMethod(cls, sel, inst);
         runtimeLock.lock();
         // Don't cache the result; we don't hold the lock so it may have 
@@ -4968,7 +4989,10 @@ IMP lookUpImpOrForward(Class cls, SEL sel, id inst,
 
     // No implementation found, and method resolver didn't help. 
     // Use forwarding.
-
+    
+    // 如果都没有查找到方法 进入尝试【消息转发】阶段
+    // _objc_msgForward_impcache汇编实现 不开源 需要Xcode断点跟进去
+    // 国外开发者整理 消息转发首先调用___forwarding___函数 ___forwarding___内部调用forwardingTargetForSelector:sel
     imp = (IMP)_objc_msgForward_impcache;
     cache_fill(cls, sel, imp, inst);
 
@@ -6652,10 +6676,11 @@ void *objc_destructInstance(id obj)
         bool cxx = obj->hasCxxDtor();
         bool assoc = obj->hasAssociatedObjects();
 
-        // This order is important.
+        // 清除成员变量
         if (cxx) object_cxxDestruct(obj);
+        // 移除关联对象
         if (assoc) _object_remove_assocations(obj);
-        obj->clearDeallocating();
+        obj->clearDeallocating(); // 指向当前的弱指针设置为nil
     }
 
     return obj;
@@ -6671,7 +6696,8 @@ id
 object_dispose(id obj)
 {
     if (!obj) return nil;
-
+    
+    // 释放前调用objc_destructInstance
     objc_destructInstance(obj);    
     free(obj);
 

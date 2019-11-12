@@ -188,7 +188,7 @@ struct objc_class : objc_object {
     uint32_t instance_size;
     struct old_ivar_list *ivars;
     struct old_method_list **methodLists;
-    Cache cache;
+    Cache cache; /*方法缓存*/
     struct old_protocol_list *protocols;
     // CLS_EXT only
     const uint8_t *ivar_layout;

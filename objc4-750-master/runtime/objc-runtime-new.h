@@ -39,8 +39,8 @@ private:
     // IMP-first is better for arm64e ptrauth and no worse for arm64.
     // SEL-first is better for armv7* and i386 and x86_64.
 #if __arm64__
-    MethodCacheIMP _imp;
-    cache_key_t _key;
+    MethodCacheIMP _imp;  // 函数的地址值
+    cache_key_t _key;    // SEL作为key
 #else
     cache_key_t _key;
     MethodCacheIMP _imp;
@@ -55,12 +55,20 @@ public:
     void set(cache_key_t newKey, IMP newImp);
 };
 
+/*
+ 字典是一个典型的散列表
+ 散列表的特点就是一个key对应一个value f(key) = index
+ 散列表/哈希表是以空间换时间
+ */
 
 struct cache_t {
-    struct bucket_t *_buckets;
-    mask_t _mask;
-    mask_t _occupied;
-
+    struct bucket_t *_buckets; // 散列表
+    mask_t _mask; // 散列表的长度-1
+    mask_t _occupied; // 已经缓存的方法数量
+    
+    // 方法地址值 & _mask = 索引
+    // 如果两个不同方法生成索引如果相同 那么索引 = 生成索引 - 1，依次类推直到不一样，如果索引=0还未找到，直接索引=_mask 在继续-1，查找空的位置
+    // 扩容的策略是以前的长度 * 2 已扩容会将之前的缓存清空
 public:
     struct bucket_t *buckets();
     mask_t mask();
@@ -220,9 +228,9 @@ struct entsize_list_tt {
 
 
 struct method_t {
-    SEL name;
-    const char *types;
-    MethodListIMP imp;
+    SEL name; // 选择器/函数名
+    const char *types; // 编码(返回值类型、参数类型)
+    MethodListIMP imp; // 函数指针
 
     struct SortBySELAddress :
         public std::binary_function<const method_t&,
@@ -553,7 +561,7 @@ static_assert(FAST_IS_SWIFT_STABLE == 2, "resistance is futile");
 struct class_ro_t {
     uint32_t flags;
     uint32_t instanceStart;
-    uint32_t instanceSize;
+    uint32_t instanceSize; // 示例占用的空间
 #ifdef __LP64__
     uint32_t reserved;
 #endif
@@ -698,7 +706,7 @@ class list_array_tt {
             return 0;
         }
     }
-
+    
     List** beginLists() {
         if (hasArray()) {
             return array()->lists;
@@ -716,20 +724,28 @@ class list_array_tt {
             return &list;
         }
     }
-
+    /*
+     addedLists
+     [
+        [mthod_t, mthod_t, mthod_t],
+        [mthod_t, mthod_t, mthod_t]
+     ]
+     */
     void attachLists(List* const * addedLists, uint32_t addedCount) {
         if (addedCount == 0) return;
 
         if (hasArray()) {
             // many lists -> many lists
-            uint32_t oldCount = array()->count;
+            uint32_t oldCount = array()->count; // 原来方法列表的count
             uint32_t newCount = oldCount + addedCount;
             setArray((array_t *)realloc(array(), array_t::byteSize(newCount)));
             array()->count = newCount;
-            memmove(array()->lists + addedCount, array()->lists, 
-                    oldCount * sizeof(array()->lists[0]));
-            memcpy(array()->lists, addedLists, 
-                   addedCount * sizeof(array()->lists[0]));
+            
+            // 将原来方法列表移动后面去
+            memmove(array()->lists + addedCount, array()->lists, oldCount * sizeof(array()->lists[0]));
+            
+            // 将分类列表拷贝到原来的位置
+            memcpy(array()->lists, addedLists, addedCount * sizeof(array()->lists[0]));
         }
         else if (!list  &&  addedCount == 1) {
             // 0 lists -> 1 list
@@ -781,8 +797,7 @@ class list_array_tt {
 };
 
 
-class method_array_t : 
-    public list_array_tt<method_t, method_list_t> 
+class method_array_t : public list_array_tt<method_t, method_list_t>
 {
     typedef list_array_tt<method_t, method_list_t> Super;
 
@@ -824,15 +839,18 @@ class protocol_array_t :
 
 
 struct class_rw_t {
-    // Be warned that Symbolication knows the layout of this structure.
     uint32_t flags;
     uint32_t version;
-
+    
+    // 一开始类的方法、成员变量、属性、协议等都是放在class_ro_t中，当程序运行起来，将分类的数据与类原来的数据合并在一起放在class_rw_t中
+    
+    // class_ro_t里面的baseMethodList、baseProtocols、ivars、baseProperties是一维数组，是只读的，包含了类的初始内容
     const class_ro_t *ro;
-
-    method_array_t methods;
-    property_array_t properties;
-    protocol_array_t protocols;
+    
+    // class_rw_t里面的methods、properties、protocols是二维数组，是可读可写的，包含了类的初始内容、分类的内容
+    method_array_t methods; // 方法列表
+    property_array_t properties; // 属性列表
+    protocol_array_t protocols; // 协议列表
 
     Class firstSubclass;
     Class nextSiblingClass;
@@ -1111,10 +1129,11 @@ public:
 struct objc_class : objc_object {
     // Class ISA; isa_t isa;
     Class superclass;
-    cache_t cache;             // formerly cache pointer and vtable
-    class_data_bits_t bits;    // class_rw_t * plus custom rr/alloc flags
-
-    class_rw_t *data() { 
+    cache_t cache; // 方法缓存 Class内部结构中有个方法缓存（cache_t），用散列表（哈希表）来缓存曾经调用过的方法，可以提高方法的查找速度
+    class_data_bits_t bits;
+    
+    class_rw_t *data() {
+        // 获取具体的类信息class_rw_t 比如存储着方法列表、属性列表
         return bits.data();
     }
     void setData(class_rw_t *newData) {

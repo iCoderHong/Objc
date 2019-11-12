@@ -424,7 +424,7 @@ objc_object::rootDealloc()
                  !isa.has_sidetable_rc))
     {
         assert(!sidetable_present());
-        free(this);
+        free(this); // 直接释放对象
     } 
     else {
         object_dispose((id)this);
@@ -710,12 +710,12 @@ objc_object::rootAutorelease()
 inline uintptr_t 
 objc_object::rootRetainCount()
 {
-    if (isTaggedPointer()) return (uintptr_t)this;
+    if (isTaggedPointer()) return (uintptr_t)this; // 不是OC对象
 
     sidetable_lock();
     isa_t bits = LoadExclusive(&isa.bits);
     ClearExclusive(&isa.bits);
-    if (bits.nonpointer) {
+    if (bits.nonpointer) { // 优化过的isa指针
         uintptr_t rc = 1 + bits.extra_rc;
         if (bits.has_sidetable_rc) {
             rc += sidetable_getExtraRC_nolock();
