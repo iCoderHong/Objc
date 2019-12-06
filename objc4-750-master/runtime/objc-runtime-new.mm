@@ -2191,6 +2191,7 @@ load_images(const char *path __unused, const struct mach_header *mh)
     }
 
     // Call +load methods (without runtimeLock - re-entrant)
+    // 调用load方法
     call_load_methods();
 }
 
@@ -2854,6 +2855,7 @@ static void schedule_class_load(Class cls)
     if (cls->data()->flags & RW_LOADED) return;
 
     // Ensure superclass-first ordering
+    // 递归调用
     schedule_class_load(cls->superclass);
 
     add_class_to_loadable_list(cls);
@@ -2878,9 +2880,11 @@ void prepare_load_methods(const headerType *mhdr)
     classref_t *classlist = 
         _getObjc2NonlazyClassList(mhdr, &count);
     for (i = 0; i < count; i++) {
+        // 定制类的加载
         schedule_class_load(remapClass(classlist[i]));
     }
-
+    
+    // 分类列表
     category_t **categorylist = _getObjc2NonlazyCategoryList(mhdr, &count);
     for (i = 0; i < count; i++) {
         category_t *cat = categorylist[i];
@@ -4902,9 +4906,11 @@ IMP lookUpImpOrForward(Class cls, SEL sel, id inst,
     if (!cls->isRealized()) {
         realizeClass(cls);
     }
-
+    
+    // 如果类没有初始化 就初始化
     if (initialize  &&  !cls->isInitialized()) {
         runtimeLock.unlock();
+        // 初始化
         _class_initialize (_class_getNonMetaClass(cls, inst));
         runtimeLock.lock();
         // If sel == initialize, _class_initialize will send +initialize and 

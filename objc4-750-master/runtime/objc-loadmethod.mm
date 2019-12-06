@@ -195,12 +195,14 @@ static void call_class_loads(void)
     // Call all +loads for the detached list.
     for (i = 0; i < used; i++) {
         Class cls = classes[i].cls;
+        // 取出类的load方法地址
         load_method_t load_method = (load_method_t)classes[i].method;
         if (!cls) continue; 
 
         if (PrintLoading) {
             _objc_inform("LOAD: +[%s load]\n", cls->nameForLogging());
         }
+        // 通过load方法地址直接调用load方法
         (*load_method)(cls, SEL_load);
     }
     
@@ -237,6 +239,7 @@ static bool call_category_loads(void)
     // Call all +loads for the detached list.
     for (i = 0; i < used; i++) {
         Category cat = cats[i].cat;
+        // 取出分类的方法内存地址
         load_method_t load_method = (load_method_t)cats[i].method;
         Class cls;
         if (!cat) continue;
@@ -248,6 +251,7 @@ static bool call_category_loads(void)
                              cls->nameForLogging(), 
                              _category_getName(cat));
             }
+            // 直接通过分类的load方法地址 直接调用
             (*load_method)(cls, SEL_load);
             cats[i].cat = nil;
         }
@@ -350,10 +354,12 @@ void call_load_methods(void)
     do {
         // 1. Repeatedly call class +loads until there aren't any more
         while (loadable_classes_used > 0) {
+            // 先调用类的load方法
             call_class_loads();
         }
 
         // 2. Call category +loads ONCE
+        // 在调用分类的load方法
         more_categories = call_category_loads();
 
         // 3. Run more +loads if there are classes OR more untried categories

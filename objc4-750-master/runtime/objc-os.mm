@@ -889,6 +889,8 @@ void _objc_init(void)
     
     /**
      map_images 函数地址 内部会动态分类中的属性、方法、协议组合到类对象中
+     load_images 内部会调用所有类、分类的load方法
+     类、分类initialize是在objc_msgSend时检查是否被调用过
      */
     _dyld_objc_notify_register(&map_images, load_images, unmap_image);
 }
